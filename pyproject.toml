@@ -1,0 +1,15 @@
+[project]
+name = "ai-agent-swarm"
+version = "0.1.0"
+description = "A multi-agent system designed to collaboratively respond to client inquiries and doubts."
+authors = [
+    {name = "tteodorogustavo",email = "tteodoro.gustavo@gmail.com"}
+]
+readme = "README.md"
+requires-python = ">=3.13"
+dependencies = [
+]
+
+[build-system]
+requires = ["poetry-core>=2.0.0,<3.0.0"]
+build-backend = "poetry.core.masonry.api"

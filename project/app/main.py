@@ -1,0 +1,1 @@
+# main.py <-- NOSSO "ANFITRIÃO" (Cria o app e inclui os routers)

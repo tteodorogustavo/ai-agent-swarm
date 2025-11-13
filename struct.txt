@@ -1,0 +1,53 @@
+/agent_swarm_project
+|
+|-- /app                    # O "cérebro": todo o código da aplicação
+|   |-- /api                # Endpoints FastAPI (a "porta da frente")
+|   |   |-- __init__.py
+|   |   |-- chat_router.py  # Endpoint /chat
+|   |   |-- models.py       # Modelos Pydantic (validação de entrada/saída)
+|   |
+|   |-- /agents             # Agentes "Investigadores" (Workers)
+|   |   |-- __init__.py
+|   |   |-- knowledge_agent.py # Especialista em RAG/Web
+|   |   |-- customer_agent.py  # Especialista em dados do cliente
+|   |
+|   |-- /graph              # Lógica do LangGraph (o "Organograma")
+|   |   |-- __init__.py
+|   |   |-- state.py        # Definição do AgentState
+|   |   |-- router.py       # Nó de roteamento (o "Gerente")
+|   |   |-- synthesis_node.py # Nó de personalidade (o "Porta-Voz")
+|   |   |-- builder.py      # Onde o grafo é montado
+|   |
+|   |-- /services           # Lógica de negócios (ex: RAG)
+|   |   |-- __init__.py
+|   |   |-- rag_service.py
+|   |
+|   |-- /tools              # Ferramentas para os agentes
+|   |   |-- __init__.py
+|   |   |-- customer_tools.py # Ferramentas do customer_agent
+|   |
+|   |-- __init__.py
+|   |-- main.py             # Ponto de entrada do FastAPI (o "Anfitrião")
+|
+|-- /data                   # A "memória": dados (ex: vector store)
+|   |-- /vector_store       # (Será ignorado pelo .gitignore)
+|
+|-- /scripts                # Ferramentas auxiliares (ex: ingestão de dados)
+|   |-- ingest_data.py      # Script para alimentar o RAG
+|
+|-- /tests                  # O "guardião": NOSSOS TESTES
+|   |-- /api
+|   |   |-- test_chat_router.py
+|   |-- /agents
+|   |   |-- test_knowledge_agent.py
+|   |   |-- test_customer_agent.py
+|   |-- /tools
+|   |   |-- test_customer_tools.py
+|   |-- conftest.py         # Configurações e fixtures do Pytest
+|
+|-- .env                    # Nossas chaves secretas (API Keys)
+|-- .gitignore              # O "porteiro" (ignora .env, data/, etc.)
+|-- Dockerfile              # Receita para construir a imagem
+|-- docker-compose.yml      # Orquestrador (para rodar fácil com Docker)
+|-- pyproject.toml          # (Ou requirements.txt) Nossas dependências
+|-- README.md               # O manual de instruções
