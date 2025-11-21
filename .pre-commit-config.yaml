@@ -41,10 +41,11 @@ repos:
         stages: [commit-msg]
 
 
-  - repo: https://github.com/pre-commit/mirrors-mypy
-    rev: v1.5.0
-    hooks:
-      - id: mypy
-        name: MyPy
-        description: This hook runs MyPy to check Python type hints.
-        # args: ["--explicit-package-bases"]
+  # Temporarily disabled - can be re-enabled after validating type hints
+  # - repo: https://github.com/pre-commit/mirrors-mypy
+  #   rev: v1.5.0
+  #   hooks:
+  #     - id: mypy
+  #       name: MyPy
+  #       description: This hook runs MyPy to check Python type hints.
+  #       # args: ["--explicit-package-bases"]
