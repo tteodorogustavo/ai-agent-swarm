@@ -6,9 +6,35 @@ authors = [
     {name = "tteodorogustavo",email = "tteodoro.gustavo@gmail.com"}
 ]
 readme = "README.md"
-requires-python = ">=3.13"
-dependencies = [
-]
+requires-python = ">=3.13,<3.15"
+
+[tool.poetry]
+packages = [{include = "app", from = "."}]
+
+[tool.poetry.dependencies]
+python = ">=3.13,<3.15"
+langchain = ">=1.0.5,<2.0.0"
+langchain-community = ">=0.4.1,<0.5.0"
+langchain-openai = ">=1.0.2,<2.0.0"
+langchain-core = ">=1.0.4,<2.0.0"
+faiss-cpu = ">=1.12.0,<2.0.0"
+pytest = ">=9.0.1,<10.0.0"
+pydantic = ">=2.0.0,<3.0.0"
+beautifulsoup4 = ">=4.14.2,<5.0.0"
+langchain-tavily = ">=0.2.13,<0.3.0"
+langgraph = ">=1.0.2,<2.0.0"
+fastapi = ">=0.100.0,<1.0.0"
+uvicorn = ">=0.30.0,<1.0.0"
+
+[tool.poetry.group.dev.dependencies]
+ipykernel = ">=7.1.0,<8.0.0"
+pre-commit = ">=3.4.0,<4.0.0"
+ruff = ">=0.14.0,<1.0.0"
+black = ">=24.3.0,<25.0.0"
+mypy = ">=1.5.0,<2.0.0"
+commitizen = ">=2.37.0,<3.0.0"
+pyupgrade = ">=3.10.1,<4.0.0"
+reorder-python-imports = ">=3.10.0,<4.0.0"
 
 [build-system]
 requires = ["poetry-core>=2.0.0,<3.0.0"]

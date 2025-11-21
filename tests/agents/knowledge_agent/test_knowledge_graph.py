@@ -2,81 +2,141 @@
 Unit Tests for the Knowledge Agent Sub-Graph Logic.
 
 This file specifically tests the "brain" of our Quality Control (QC) loop:
-the conditional logic (`should_loop`) that decides where to route
-the workflow based on the Grader's output.
+the conditional logic (`should_continue`) that decides where to route
+the workflow based on the Grader's decision.
+
+Updated for simplified architecture (no rewriter node, Grader manages retries).
 """
-import pytest
+from langchain_core.messages import AIMessage
+from langchain_core.messages import HumanMessage
 
-# The "Departmental Clipboard" (State) we need to fake
+from app.agents.knowledge_agent.agent import KnowledgeAgent
 from app.agents.knowledge_agent.state import KnowledgeState
+# The "Departmental Clipboard" (State) we need to fake
+# The "Conditional Logic" (Method) we are testing
 
-# The "Conditional Logic" (Function) we are testing
-from app.agents.knowledge_agent.graph import should_loop
+# Create instance to access _should_continue method
+_agent = KnowledgeAgent()  # --- Test Case 1: The "Happy Path" (Grade is Accepted) ---
 
-# --- Test Case 1: The "Happy Path" (Grade is Accepted) ---
 
-def test_should_loop_accept():
+def test_should_continue_accept():
     """
-    Tests if the logic correctly routes to 'accept' when the grade is good.
+    Tests if the logic correctly routes to 'accept' when Grader approves draft.
+
+    Scenario: Grader sets grade_decision="accept"
+    Expected: Route to "accept" node
     """
-    # 1. Arrange: Create a "fake" clipboard (state)
-    # We only need to fill the fields the function *reads*
     state = KnowledgeState(
-        latest_grade="accept",
-        rewrite_attempts=0,
-        # The other fields don't matter for this test
-        original_question="", messages=[], query_analysis=None,
-        context=[], draft_answer="", latest_critique="",
-        final_evidence=[], final_answer=""
+        grade_decision="accept",
+        original_question="Test question",
+        messages=[AIMessage(content="QC approved. Answer finalized.")],
+        context=[],
+        tools_called=[],
+        draft_answer="Test answer",
+        final_evidence=[],
+        final_answer="",
+        user_id="test_user",
+        route="knowledge",
+        router_calls=0,
+        final_context=[],
     )
-    
-    # 2. Act: Run the function
-    result = should_loop(state)
-    
-    # 3. Assert: Check the result
+
+    result = _agent._should_continue(state)
+
     assert result == "accept"
 
-# --- Test Case 2: The "Failure & Retry" Path ---
 
-def test_should_loop_reject_and_retry():
+# --- Test Case 2: The "Rejection & Retry" Path ---
+
+
+def test_should_continue_reject_and_retry():
     """
-    Tests if the logic correctly routes to 'rewrite' when the grade is bad
-    BUT we are still under the attempt limit.
+    Tests if the logic correctly routes back to 'investigate' when rejected.
+
+    Scenario: Grader sets grade_decision="reject" (under retry limit)
+    Expected: Route to "investigate" node for retry
     """
-    # 1. Arrange: Create a state that failed once (1 attempt)
     state = KnowledgeState(
-        latest_grade="reject",
-        rewrite_attempts=1, # We've already tried once
-        original_question="", messages=[], query_analysis=None,
-        context=[], draft_answer="", latest_critique="Test critique",
-        final_evidence=[], final_answer=""
+        grade_decision="reject",
+        original_question="Test question",
+        messages=[HumanMessage(content="QC Feedback: Needs more evidence")],
+        context=[],
+        tools_called=[],
+        draft_answer="Incomplete answer",
+        final_evidence=[],
+        final_answer="",
+        user_id="test_user",
+        route="knowledge",
+        router_calls=0,
+        final_context=[],
     )
-    
-    # 2. Act
-    result = should_loop(state)
-    
-    # 3. Assert
-    assert result == "rewrite"
 
-# --- Test Case 3: The "Circuit Breaker" Path (Too many failures) ---
+    result = _agent._should_continue(state)
 
-@pytest.mark.parametrize("attempts", [2, 3, 100])
-def test_should_loop_reject_and_fallback(attempts):
+    assert result == "investigate"
+
+
+# --- Test Case 3: The "Human Escalation" Path ---
+
+
+def test_should_continue_escalate():
     """
-    Tests if the logic correctly routes to 'fallback' (the safety net)
-    when the grade is bad AND we have hit our retry limit (>= 2).
+    Tests if the logic correctly routes to human escalation after max retries.
+
+    Scenario: Grader sets grade_decision="escalate" (max retries reached)
+    Expected: Route to "human_escalation" node for Slack notification
     """
-    # 1. Arrange: Create a state that has failed too many times
     state = KnowledgeState(
-        latest_grade="reject",
-        rewrite_attempts=attempts, # Test multiple failure counts
-        original_question="", messages=[], query_analysis=None,
-        context=[], draft_answer="", latest_critique="Test critique",
-        final_evidence=[], final_answer=""
+        grade_decision="escalate",
+        original_question="Complex question requiring expert",
+        messages=[
+            HumanMessage(content="QC Feedback: Missing key information"),
+            HumanMessage(content="QC Feedback: Still incomplete"),
+            AIMessage(
+                content="QC failed after 3 attempts. Escalating to human support."
+            ),
+        ],
+        context=[],
+        tools_called=["rag_tool", "web_search_tool"],
+        draft_answer="Best effort answer",
+        final_evidence=[],
+        final_answer="",
+        user_id="test_user_123",
+        route="knowledge",
+        router_calls=0,
+        final_context=[],
     )
-    
-    # 2. Act
-    result = should_loop(state)
-    
-    # 3. Assert
-    assert result == "fallback"
+
+    result = _agent._should_continue(state)
+
+    assert result == "human_escalation"
+
+
+# --- Test Case 4: Default behavior (missing grade_decision) ---
+
+
+def test_should_continue_default_to_investigate():
+    """
+    Tests if the logic defaults to 'investigate' when grade_decision is missing.
+
+    Scenario: grade_decision not set in state
+    Expected: Default to "investigate" (safe retry behavior)
+    """
+    state = KnowledgeState(
+        # grade_decision deliberately omitted
+        original_question="Test question",
+        messages=[],
+        context=[],
+        tools_called=[],
+        draft_answer="",
+        final_evidence=[],
+        final_answer="",
+        user_id="test_user",
+        route="knowledge",
+        router_calls=0,
+        final_context=[],
+    )
+
+    result = _agent._should_continue(state)
+
+    assert result == "investigate"  # Default to retry

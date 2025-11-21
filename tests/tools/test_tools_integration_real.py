@@ -1,4 +1,5 @@
-from app.services import rag_service
+from app.services.rag import rag_service
+
 
 def test_rag_retriever_real():
     """
@@ -11,6 +12,7 @@ def test_rag_retriever_real():
     assert isinstance(results, list)
     assert len(results) > 0
     assert any("InfinitePay" in doc.page_content for doc in results)
+
 
 def test_web_search_real():
     """

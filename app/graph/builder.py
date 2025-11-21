@@ -1,193 +1,264 @@
 """
-This module is responsible for constructing the agent system structure according to LangGraph concepts.
-It defines and organizes the components, relationships, and workflows that enable agent-based interactions,
-ensuring modularity, scalability, and clear communication between agents within the system.
+Main Graph Builder - OOP Orchestrator
+
+This module constructs the main agent orchestration graph using LangGraph.
+It assembles all specialized agents (Router, Customer, Knowledge, Synthesis)
+into a hierarchical workflow with conditional routing and loops.
+
+Architecture:
+    1. Router Agent → Analyzes query and routes to appropriate specialist
+    2. Specialist Agents → Process query (Knowledge or Customer)
+    3. Loop back to Router → Re-evaluate if more information needed
+    4. Synthesis Agent → Generates final polished response
+    5. END → Returns final response to user
+
+This implements the "Hierarchical Sub-Graph Orchestrator" pattern where
+each agent is a self-contained unit that can be invoked independently.
 """
-
-"""
-The Main Graph Builder (The "CEO" / "Chief Architect")
-
-This file assembles the "MainGraph" (Agent 1: The Orchestrator).
-It does not contain any agent logic itself.
-Instead, it *imports* all the compiled Sub-Graphs (the "Departments")
-and connects them together.
-
-This implements our "CERTO" (correct) architecture:
-A Hierarchical, Looping, Sub-Graph Orchestrator.
-"""
-
 import logging
-from langgraph.graph import StateGraph, END
-from langchain_core.messages import AIMessage, BaseMessage
+from typing import Any
+from typing import Dict
 
-# Import the "Master Clipboard"
-from app.graph.main_state import MainState
+from langgraph.graph import END
+from langgraph.graph import StateGraph
 
-# --- 1. Import all "Departments" (Compiled Sub-Graphs) ---
-# We import the *compiled graph* from each department's .graph file.
-from app.agents.router_agent.graph import router_graph
-from app.agents.knowledge_agent.graph import knowledge_graph
-from app.agents.customer_agent.graph import customer_graph
-from app.agents.synthesis_agent.graph import synthesis_graph
+from app.agents.customer_agent.node import CustomerAgent
+from app.agents.knowledge_agent.agent import KnowledgeAgent
+from app.agents.main_state import MainState
+from app.agents.router_agent.node import RouterAgent
+from app.agents.synestesis_agent.node import SynthesisAgent
+# Import the main state schema
+# Import agent classes (OOP architecture)
+# Optional tracing initialization
+
+# Configure logging
+logger = logging.getLogger(__name__)
 
 
-# --- 2. Define the "Wrapper Nodes" ---
-# These nodes are the "Directors" that know how to "invoke" (call)
-# the "Departments" (Sub-Graphs) and map their I/O to the MainState.
+# =============================================================================
+# STATE MAPPING WRAPPERS - Map MainState to Agent-specific states
+# =============================================================================
 
-def router_node(state: MainState) -> dict:
+
+def knowledge_node(state: MainState) -> Dict[str, Any]:
     """
-    The "Super-Manager" node (Agent 1: The Brain).
-    This node calls the RouterAgent Sub-Graph.
-    
-    Input: MainState.messages
-    Output (writes to MainState): route, query_analysis
+    Wrapper for KnowledgeAgent that maps MainState → KnowledgeState.
+
+    Extracts the last user question from messages and maps to original_question.
     """
-    logging.info("--- MAIN GRAPH: Calling Router (Sub-Graph) ---")
-    
-    # 1. Prepare the *input* for the Router Sub-Graph
-    # It only needs the main message history
-    sub_graph_input = {"messages": state["messages"]}
-    
-    # 2. Invoke the Sub-Graph
-    # This runs the Router's internal graph (which fills RouterDecision)
-    sub_graph_output = router_graph.invoke(sub_graph_input)
-    
-    # 3. Return the *updates* for the MainState (the "Master Clipboard")
-    # We add its final_answer (its "log") to our main memory
+    # Extract last human message as the question
+    messages = state.get("messages", [])
+    last_human_message = None
+    for msg in reversed(messages):
+        if hasattr(msg, "type") and msg.type == "human":
+            last_human_message = msg.content
+            break
+
+    if not last_human_message:
+        logger.error("No human message found in state!")
+        return {
+            "final_answer": "Erro: Nenhuma pergunta foi encontrada.",
+            "final_context": [],  # MainState uses final_context, not final_evidence
+            "route": "synthesis_agent",
+        }
+
+    # Map MainState → KnowledgeState
+    knowledge_state = {
+        "original_question": last_human_message,
+        "user_id": state.get("user_id", ""),
+        "messages": [],  # Knowledge agent has its own message history
+        "context": [],
+        "draft_answer": "",
+        "grade_decision": "",
+        "tools_called": [],
+        "final_answer": "",
+        "final_evidence": [],
+    }
+
+    logger.info(f"Mapped question to KnowledgeAgent: {last_human_message[:100]}...")
+
+    # Invoke knowledge agent
+    result = knowledge_agent.invoke(knowledge_state)
+
+    # Map back to MainState updates
+    # CRITICAL: MainState uses "final_context" (with operator.add), not "final_evidence"
     return {
-        "route": sub_graph_output["route"],
-        "query_analysis": sub_graph_output["query_analysis"],
-        "messages": [AIMessage(content=sub_graph_output["final_answer"])]
+        "final_answer": result.get("final_answer", ""),
+        "final_context": result.get(
+            "final_evidence", []
+        ),  # Map final_evidence → final_context
+        "route": result.get("route", "synthesis_agent"),
     }
 
-def knowledge_node(state: MainState) -> dict:
+
+def customer_node(state: MainState) -> Dict[str, Any]:
     """
-    The "Knowledge Department" node.
-    This node calls the KnowledgeAgent Sub-Graph (the QC loop).
-    
-    Input: MainState.messages, MainState.query_analysis
-    Output (writes to MainState): final_context
+    Wrapper for CustomerAgent that maps MainState → CustomerState.
+
+    Extracts the last user question from messages.
     """
-    logging.info("--- MAIN GRAPH: Calling Knowledge Dept (Sub-Graph) ---")
-    
-    # 1. Prepare the *input* for the Knowledge Sub-Graph
-    sub_graph_input = {
-        "original_question": state["messages"][-1].content,
-        "query_analysis": state["query_analysis"],
-        "rewrite_attempts": 0 # Always start the QC loop counter at 0
+    # Extract last human message as the question
+    messages = state.get("messages", [])
+    last_human_message = None
+    for msg in reversed(messages):
+        if hasattr(msg, "type") and msg.type == "human":
+            last_human_message = msg.content
+            break
+
+    if not last_human_message:
+        logger.error("No human message found in state!")
+        return {
+            "final_answer": "Erro: Nenhuma pergunta foi encontrada.",
+            "final_context": [],  # MainState uses final_context, not final_evidence
+            "route": "synthesis_agent",
+        }
+
+    # CustomerAgent expects messages directly
+    customer_state = {
+        "user_id": state.get("user_id", ""),
+        "messages": [
+            msg for msg in messages if hasattr(msg, "type") and msg.type == "human"
+        ],
+        "final_evidence": [],
     }
-    
-    # 2. Invoke the Sub-Graph (This runs the entire QC loop)
-    sub_graph_output = knowledge_graph.invoke(sub_graph_input)
-    
-    # 3. Return the *updates* for the MainState
+
+    logger.info(f"Mapped question to CustomerAgent: {last_human_message[:100]}...")
+
+    # Invoke customer agent
+    result = customer_agent.invoke(customer_state)
+
+    # Map back to MainState updates
+    # CRITICAL: MainState uses "final_context" (with operator.add), not "final_evidence"
     return {
-        "final_context": sub_graph_output["final_evidence"],
-        "messages": [AIMessage(content=sub_graph_output["final_answer"])]
+        "final_answer": result.get("final_answer", ""),
+        "final_context": result.get(
+            "final_evidence", []
+        ),  # Map final_evidence → final_context
+        "route": result.get("route", "synthesis_agent"),
     }
 
-def customer_node(state: MainState) -> dict:
-    """
-    The "Customer Department" node.
-    This node calls the CustomerAgent Sub-Graph (the ReAct loop).
-    
-    Input: MainState.user_id, MainState.messages
-    Output (writes to MainState): final_context
-    """
-    logging.info("--- MAIN GRAPH: Calling Customer Dept (Sub-Graph) ---")
-    
-    # 1. Prepare the *input* for the Customer Sub-Graph
-    sub_graph_input = {
-        "original_question": state["messages"][-1].content,
-        "user_id": state["user_id"],
-        "messages": [] # Give it a clean internal memory for its ReAct loop
-    }
-    
-    # 2. Invoke the Sub-Graph
-    sub_graph_output = customer_graph.invoke(sub_graph_input)
 
-    # 3. Return the *updates* for the MainState
-    return {
-        "final_context": sub_graph_output["final_evidence"],
-        "messages": [AIMessage(content=sub_graph_output["final_answer"])]
-    }
+# =============================================================================
+# AGENT INSTANCES
+# =============================================================================
 
-def synthesis_node(state: MainState) -> dict:
-    """
-    The "Spokesperson" node.
-    This node calls the SynthesisAgent Sub-Graph.
-    
-    Input: MainState.messages, MainState.final_context
-    Output (writes to MainState): final_response
-    """
-    logging.info("--- MAIN GRAPH: Calling Synthesis Dept (Sub-Graph) ---")
-    
-    # 1. Prepare the *input* for the Synthesis Sub-Graph
-    sub_graph_input = {
-        "messages": state["messages"],
-        "context": state["final_context"]
-    }
-    
-    # 2. Invoke the Sub-Graph
-    sub_graph_output = synthesis_graph.invoke(sub_graph_input)
+# Initialize agent instances once for reuse
+# These instances can be used directly as LangGraph nodes since they implement invoke()
+router_agent = RouterAgent()
+customer_agent = CustomerAgent()
+knowledge_agent = KnowledgeAgent()
+synthesis_agent = SynthesisAgent()
 
-    # 3. Return the *final* updates for the MainState
-    # This is the end of the line.
-    return {
-        "final_response": sub_graph_output["final_answer"],
-        "messages": [AIMessage(content=sub_graph_output["final_answer"])]
-    }
 
-# --- 3. Define the "Conditional Edge" (The "Esteira") ---
+# =============================================================================
+# ROUTING LOGIC - Conditional edge function
+# =============================================================================
+
 
 def main_router_logic(state: MainState) -> str:
     """
-    This is the "brain" of the CEO. It reads the `route`
-    from the "Master Clipboard" (MainState) and tells the
-    graph which "Department" to go to next.
+    Main routing logic - determines next node based on router decision.
+
+    This function reads the 'route' field from state (set by RouterAgent)
+    and directs the graph flow to the appropriate specialist agent.
+
+    Args:
+        state: Current main state with route field
+
+    Returns:
+        str: Name of next node to execute
+
+    Routing Rules:
+        - "knowledge_agent" → knowledge_agent
+        - "customer_agent" → customer_agent
+        - "synthesis_agent" → synthesis_agent
     """
-    logging.info(f"--- MAIN GRAPH: Routing. Decision: {state['route']} ---")
-    return state["route"] # The route is a string: "knowledge_department", etc.
+    route = state.get("route", "synthesis_agent")
+    logger.info(f"--- MAIN GRAPH: Routing to {route} ---")
+
+    # Route names match node names directly now
+    return route
 
 
-# --- 4. Build the Graph (The "Factory Assembly") ---
+# =============================================================================
+# GRAPH CONSTRUCTION - Build and compile the main orchestration graph
+# =============================================================================
 
-# Initialize the "Factory" with the "Master Clipboard"
-builder = StateGraph(MainState)
 
-# 1. Add all the "Stations" (The Departments + The CEO's Brain)
-builder.add_node("router_node", router_node)
-builder.add_node("knowledge_department", knowledge_node)
-builder.add_node("customer_department", customer_node)
-builder.add_node("synthesis_node", synthesis_node)
+def build_main_graph() -> StateGraph:
+    """
+    Build and compile the main orchestration graph.
 
-# 2. Define the Entry Point
-builder.set_entry_point("router_node")
+    Graph Structure:
+        Entry → Router → Conditional Route:
+            ├─→ Knowledge → Conditional (back to Router OR go to Synthesis)
+            ├─→ Customer → Conditional (back to Router OR go to Synthesis)
+            └─→ Synthesis → END
 
-# 3. Define the "Conditional Conveyor Belt"
-builder.add_conditional_edges(
-    "router_node",      # The "Esteira" *starts* at the Router
-    main_router_logic,  # It *uses* this function to read the 'route'
-    {
-        # This is the "map"
-        "knowledge_department": "knowledge_department",
-        "customer_department": "customer_department",
-        "synthesis_node": "synthesis_node"
-    }
-)
+    Returns:
+        StateGraph: Compiled graph ready for execution
+    """
+    logger.info("Building main orchestration graph...")
 
-# 4. Define the "Loops" (The "CERTO" part)
-# After a "worker" finishes, it goes BACK to the "Gerente" (Router)
-# to re-evaluate the plan.
-builder.add_edge("knowledge_department", "router_node")
-builder.add_edge("customer_department", "router_node")
+    # Initialize graph builder with MainState schema
+    builder = StateGraph(MainState)
 
-# 5. Define the "Exit"
-# Only the "Spokesperson" (Synthesis) can end the process.
-builder.add_edge("synthesis_node", END)
+    # Add nodes using wrapper functions for state mapping
+    builder.add_node("router_agent", router_agent.invoke)
+    builder.add_node("knowledge_agent", knowledge_node)  # Wrapper for state mapping
+    builder.add_node("customer_agent", customer_node)  # Wrapper for state mapping
+    builder.add_node("synthesis_agent", synthesis_agent.invoke)
 
-# 6. Compile the "Factory"
-logging.info("Compiling the MainGraph...")
-app_graph = builder.compile()
-logging.info("MainGraph compiled successfully.")
+    # Set entry point
+    builder.set_entry_point("router_agent")
+
+    # Add conditional routing from router
+    # Router can ONLY route to specialist agents, never directly to synthesis
+    builder.add_conditional_edges(
+        "router_agent",
+        main_router_logic,
+        {"knowledge_agent": "knowledge_agent", "customer_agent": "customer_agent"},
+    )
+
+    # CRITICAL FIX: Agents can now signal completion by setting route="synthesis_agent"
+    # Add conditional edges from specialist agents (not fixed loops!)
+    def after_specialist_logic(state: MainState) -> str:
+        """
+        Decide what to do after a specialist agent completes.
+
+        If the specialist agent set route="synthesis_agent", go there.
+        Otherwise, loop back to router for re-evaluation.
+        """
+        route = state.get("route", "router_agent")
+        if route == "synthesis_agent":
+            logger.info("Specialist signaled completion → routing to synthesis")
+            return "synthesis_agent"
+        else:
+            logger.info("Specialist needs more work → routing back to router")
+            return "router_agent"
+
+    builder.add_conditional_edges(
+        "knowledge_agent",
+        after_specialist_logic,
+        {"router_agent": "router_agent", "synthesis_agent": "synthesis_agent"},
+    )
+
+    builder.add_conditional_edges(
+        "customer_agent",
+        after_specialist_logic,
+        {"router_agent": "router_agent", "synthesis_agent": "synthesis_agent"},
+    )
+
+    # Add terminal edge (synthesis is always the final step)
+    builder.add_edge("synthesis_agent", END)
+
+    # Compile the graph
+    logger.info("Compiling main graph...")
+    compiled_graph = builder.compile()
+    logger.info("✓ Main graph compiled successfully")
+
+    return compiled_graph
+
+
+# Build the graph once on module import
+app_graph = build_main_graph()

@@ -6,41 +6,51 @@ It manages the complex, internal loop of RAG, Grading, and Rewriting.
 
 This state is completely "black-boxed" from the Main Graph.
 """
+from typing import Annotated
+from typing import Any
+from typing import Dict
+from typing import List
+from typing import Optional
 
-from typing import TypedDict, Annotated, List, Optional
-from langchain_core.messages import BaseMessage
-import operator
+from app.agents.main_state import MainState
 
-from app.agents.knowledge_agent.query_schema import QueryAnalysis
 
-class KnowledgeState(TypedDict):
+class KnowledgeState(MainState):
     """
     The internal state for the self-correcting RAG sub-graph.
+
+    Inherits common fields from `MainState`. Adds knowledge-department specific
+    loop state and quality-control fields.
     """
-    
-    # --- 1. Inputs from "CEO" ---
-    original_question: Annotated[str, "The raw user question passed in from the Main Graph."]
 
     # --- 2. Internal Memory & Loop ---
-    messages: Annotated[List[BaseMessage], operator.add, "The *internal* memory for this sub-graph." \
-    " Used by the Rewriter to pass critiques back to the Knowledge node."]
+    context: Annotated[
+        List[str],
+        'The internal "Evidence Box" (RAG chunks, web results) for the current loop.',
+    ]
 
-    query_analysis: Annotated[Optional[QueryAnalysis],
-                              "The \"RAG Analysis Form\" (keywords, hyde, etc.) filled by this department's internal router."]
-    
-    context: Annotated[List[str], "The internal \"Evidence Box\" (RAG chunks, web results) for the current loop."]
+    tools_called: Annotated[
+        List[str],
+        "List of tool names that were actually invoked (e.g., ['rag_tool', 'web_search_tool']).",
+    ]
 
     # --- 3. Quality Control (QC) Loop ---
-    draft_answer: Annotated[str, "The working 'draft' response ready for grading."]
-    """The working 'draft' response ready for grading."""
-    
-    latest_grade: Annotated[str, "The \"QC Stamp\" from the Grader (e.g., \"accept\", \"reject\")."]
-    
-    latest_critique: Annotated[str, "The 'QC Notes' (critique) explaining a rejection."]
+    draft_answer: Annotated[
+        Optional[str], "The working 'draft' response ready for grading."
+    ]
 
-    rewrite_attempts: Annotated[int, "The \"circuit breaker\" counter to prevent infinite loops."]
+    # Temporary field for conditional routing (set by Grader, consumed by graph logic)
+    grade_decision: Annotated[
+        Optional[str],
+        "Grader's decision: 'accept', 'reject', or 'escalate'. Used only for conditional edges.",
+    ]
 
-    # --- 4. Final Output to "CEO" ---
-    final_evidence: Annotated[List[str], "The *final, approved* evidence that will be returned to the Main Graph."]
-    
-    final_answer: Annotated[str, "The *final, approved* draft answer to be returned to the Main Graph."]
+    # --- 4. Final Output ---
+    final_evidence: Annotated[
+        List[Dict[str, Any]],
+        "The *final, approved* structured evidence that will be returned to the Main Graph.",
+    ]
+    final_answer: Annotated[
+        Optional[str],
+        "The *final, approved* draft answer to be returned to the Main Graph.",
+    ]
